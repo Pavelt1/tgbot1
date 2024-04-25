@@ -43,6 +43,17 @@ def show_hint(*lines):
 def show_target(data):
     return f"{data['target_word']} -> {data['translate_word']}"
 
+def results(id,word):
+    global result_word
+    if id in result_word:
+        result_word[id].append(word)
+        if result_word[id].count(word) == 10 and session.query(Ruswords.result).filter(Ruswords.word == word).all() :
+            session.query(Ruswords).filter(Ruswords.word == word).update({"result":True})
+            session.commit()
+            session.close()
+    else:
+        result_word[id] = [word]
+
 
 class Command:
     ADD_WORD = 'Добавить слово ➕'
@@ -164,6 +175,7 @@ def info(message):
 @bot.message_handler(func=lambda message: True, content_types=['text'])
 def message_reply(message):
     text = message.text
+    cid = message.chat.id
     markup = types.ReplyKeyboardMarkup(row_width=2)
     with bot.retrieve_data(message.from_user.id, message.chat.id) as data:
         target_word = data['target_word']
@@ -171,8 +183,7 @@ def message_reply(message):
             hint = show_target(data)
             hint_text = ["Отлично!❤", hint]
             hint = show_hint(*hint_text)
-            global result
-            result.append(text)
+            results(cid,text)
         else:
             for btn in buttons:
                 if btn.text == text:
@@ -182,8 +193,8 @@ def message_reply(message):
                              f"Попробуй ещё раз вспомнить слово 🇷🇺{data['translate_word']}")
     markup.add(*buttons)
     bot.send_message(message.chat.id, hint, reply_markup=markup)
-    if result.count(text) >= 10:
-                bot.send_message(message.chat.id, f"Слово {text} выучено! \nТак держать.. ")
+    if session.query(Ruswords.result).filter(Ruswords.word == text).all():
+        bot.send_message(message.chat.id, f"Ты молодец! Ты овладел словом {text}! \nТак держать... ")
 
 
 bot.add_custom_filter(custom_filters.StateFilter(bot))
