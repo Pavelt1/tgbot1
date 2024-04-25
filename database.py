@@ -17,6 +17,7 @@ class Ruswords(Base):
     id = sq.Column(sq.INTEGER,primary_key=True)
     word = sq.Column(sq.String(length=40),unique=True)
     id_users = sq.Column(sq.BigInteger,sq.ForeignKey("users.id"),nullable=False)
+    result = sq.Column(sq.Boolean,default=False)
 
     users = relationship(Users,backref="ruswords")
 
