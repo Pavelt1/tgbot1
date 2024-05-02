@@ -1,7 +1,7 @@
 import sqlalchemy
 import random
 
-from database import create_tables, Users, Ruswords, Engwords
+from database import create_tables, Users, Words, WordUser
 from translator import translate_word
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import func
@@ -25,10 +25,8 @@ state_storage = StateMemoryStorage()
 token_bot = ""
 bot = TeleBot(token_bot, state_storage=state_storage)
 
-switch_add = False
-swich_del = False
 buttons = []
-result = []
+result_word = {}
         
 
 def session_commit(user):
@@ -47,8 +45,8 @@ def results(id,word):
     global result_word
     if id in result_word:
         result_word[id].append(word)
-        if result_word[id].count(word) == 10 and session.query(Ruswords.result).filter(Ruswords.word == word).all() :
-            session.query(Ruswords).filter(Ruswords.word == word).update({"result":True})
+        if result_word[id].count(word) == 10 :
+            session.query(Words).filter(Words.rus == word).update({"result": True})
             session.commit()
             session.close()
     else:
@@ -75,17 +73,17 @@ def create_cards(message):
         session_commit(new_user)
         bot.send_message(cid, "Привет, незнакомец, давай изучать английский...")
     
-    total_count = session.query(func.count(Ruswords.word)).where(Ruswords.id_users == cid).scalar()
+    total_count = session.query(func.count(Words.rus)).join(WordUser,Words.id == WordUser.id_word).join(Users,WordUser.id_user == Users.id).where(Users.id == cid).scalar()
     if total_count >= 5:
         markup = types.ReplyKeyboardMarkup(row_width=2)
         global buttons
         buttons = []  
-        translate = session.query(Ruswords.word).order_by(func.random()).where(Ruswords.id_users == cid).first() 
-        target_word = session.query(Engwords.word).join(Ruswords,Engwords.id_ruwords == Ruswords.id).where(Ruswords.word == translate[0]).first()
+        translate = session.query(Words.rus).join(WordUser,Words.id == WordUser.id_word).join(Users,WordUser.id_user == Users.id).order_by(func.random()).where(Users.id == cid).first() 
+        target_word = session.query(Words.eng).where(Words.rus == translate[0]).first()
         target_word_btn = types.KeyboardButton(target_word[0])
         buttons.append(target_word_btn)
         others = []
-        for word in session.query(Engwords.word).order_by(func.random()).where(Engwords.word != target_word[0]).limit(4).all():
+        for word in session.query(Words.eng).order_by(func.random()).where(Words.eng != target_word[0]).limit(4).all():
             others.append(word[0])
         other_words_btns = [types.KeyboardButton(word) for word in others]
         buttons.extend(other_words_btns)
@@ -118,57 +116,50 @@ def next_cards(message):
 
 @bot.message_handler(func=lambda message: message.text == Command.DELETE_WORD)
 def delete_word(message):
-    global switch_del
     bot.send_message(message.chat.id, "Напишите слово для удаление...")
-    switch_del = True
+    bot.register_next_step_handler(message, d_word)
 
-@bot.message_handler(func=lambda message: True and switch_del == True)
-def word(message):
-    global switch_del
-    switch_del = False
+def d_word(message):
     cid = message.chat.id
-    text_ru = message.text
-    ff = session.query(Ruswords).filter(Ruswords.word == text_ru).first()
-    if ff:
-        session.query(Engwords).filter(Engwords.word == (translate_word(text_ru).capitalize())).delete()
-        session.query(Ruswords).filter(Ruswords.word == text_ru).delete()
+    text = message.text
+    id_text = session.query(Words.id).join(WordUser,Words.id == WordUser.id_word).join(Users,WordUser.id_user == Users.id).filter(Words.rus == text and Users.id == cid).first()
+    if id_text:
+        session.query(WordUser).filter(WordUser.id_word == id_text[0]).delete()
+        session.commit()
+        session.query(Words).filter(Words.rus == text).delete()
         session.commit()
         session.close()
         bot.send_message(cid, "Слово  удалено")
+        info(message)
     else:
         bot.send_message(cid, "Слово не найдено")
 
 @bot.message_handler(func=lambda message: message.text == Command.ADD_WORD)
 def add_word(message):
-    global switch_add
     bot.send_message(message.chat.id, "Напишите новое слово...")
-    switch_add = True
+    bot.register_next_step_handler(message, a_word)
 
-@bot.message_handler(func=lambda message: True and switch_add == True)
-def word(message):
-    global switch_add
-    switch_add = False
+def a_word(message):
     cid = message.chat.id
-    text_ru = message.text
-    ff = session.query(Ruswords).filter(Ruswords.word == text_ru).first()
+    text = message.text.capitalize()
+    ff = session.query(Words.rus).join(WordUser,Words.id == WordUser.id_word).join(Users,WordUser.id_user == Users.id).filter(Words.rus == text and Users.id == cid).first()
     if not ff:
-        add_word_r = Ruswords(word = text_ru, id_users = cid)
-        session_commit(add_word_r)
-        idd = session.query(Ruswords.id).where(Ruswords.word == text_ru).scalar()
-        text_en = translate_word(text_ru).capitalize()
-        add_word_e = Engwords(word = text_en, id_ruwords = idd)
-        session_commit(add_word_e)
-        total_count = session.query(func.count(Ruswords.word)).where(Ruswords.id_users == cid).scalar()
-        bot.send_message(message.chat.id, f"Слово: {text_ru} успешно добавлено! Его перевод: {text_en} ! Количество слов: {total_count}")
+        add_word = Words(rus = text, eng = translate_word(text).capitalize() )
+        session_commit(add_word)
+        id_text = session.query(Words.id).where(Words.rus == text).scalar()
+        add_worduser = WordUser(id_user = cid, id_word = id_text)
+        session_commit(add_worduser)
+        total_count = session.query(func.count(Words.rus)).join(WordUser,Words.id == WordUser.id_word).join(Users,WordUser.id_user == Users.id).where(Users.id == cid).scalar()
+        bot.send_message(message.chat.id, f"Слово: {text} успешно добавлено! Его перевод: {translate_word(text).capitalize()} ! Количество слов: {total_count}")
     else:
-        bot.send_message(message.chat.id, f"Слово {text_ru} уже есть в БД!")
+        bot.send_message(message.chat.id, f"Слово {text} уже есть в БД!")
 
 @bot.message_handler(commands=['info'])
 def info(message):
     cid = message.chat.id
     result = ""
-    total_count = session.query(func.count(Ruswords.word)).where(Ruswords.id_users == cid).scalar()
-    for i in session.query(Ruswords.word).where(Ruswords.id_users == cid).all():
+    total_count = session.query(func.count(Words.rus)).join(WordUser,Words.id == WordUser.id_word).join(Users,WordUser.id_user == Users.id).where(Users.id == cid).scalar()
+    for i in session.query(Words.rus).join(WordUser,Words.id == WordUser.id_word).join(Users,WordUser.id_user == Users.id).where(Users.id == cid).all():
         result += f"{i[0]} "
     bot.send_message(message.chat.id, f"У тебя сохранены следующие слова:\n{result} \nКоличество слов: {total_count}")
 
@@ -193,8 +184,9 @@ def message_reply(message):
                              f"Попробуй ещё раз вспомнить слово 🇷🇺{data['translate_word']}")
     markup.add(*buttons)
     bot.send_message(message.chat.id, hint, reply_markup=markup)
-    if session.query(Ruswords.result).filter(Ruswords.word == text).all():
-        bot.send_message(message.chat.id, f"Ты молодец! Ты овладел словом {text}! \nТак держать... ")
+    bool_res = session.query(Words.result).filter(Words.eng == text).first()
+    if bool_res[0]:
+        bot.send_message(message.chat.id, f"Ты молодец! Ты овладел словом ! \nТак держать... ")
 
 
 bot.add_custom_filter(custom_filters.StateFilter(bot))
