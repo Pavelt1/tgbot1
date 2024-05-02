@@ -11,25 +11,24 @@ class Users(Base):
     name = sq.Column(sq.String(length=40))
 
     
-class Ruswords(Base):
-    __tablename__ = "ruswords"
+class Words(Base):
+    __tablename__ = "words"
 
     id = sq.Column(sq.INTEGER,primary_key=True)
-    word = sq.Column(sq.String(length=40),unique=True)
-    id_users = sq.Column(sq.BigInteger,sq.ForeignKey("users.id"),nullable=False)
+    rus = sq.Column(sq.String(length=40))
+    eng = sq.Column(sq.String(length=40))
     result = sq.Column(sq.Boolean,default=False)
+    
 
-    users = relationship(Users,backref="ruswords")
+class WordUser(Base):
+    __tablename__ = "worduser"
 
+    id = sq.Column(sq.INTEGER,primary_key=True)
+    id_user = sq.Column(sq.BigInteger,sq.ForeignKey("users.id"),nullable=False)
+    id_word = sq.Column(sq.Integer,sq.ForeignKey("words.id"),nullable=False)
 
-class Engwords(Base):
-    __tablename__ = "engwords"
-
-    id = sq.Column(sq.Integer,primary_key=True)
-    word = sq.Column(sq.String(length=40),unique=True)
-    id_ruwords = sq.Column(sq.Integer,sq.ForeignKey("ruswords.id"),nullable=False)
-
-    ruwords = relationship(Ruswords,backref="engwords")
+    words = relationship(Words,backref="worduser")
+    users = relationship(Users,backref="worduser")
 
 
 def create_tables(engine):
